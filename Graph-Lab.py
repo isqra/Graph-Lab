@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
 import math
 
 root = tk.Tk()
@@ -11,10 +11,8 @@ vertices = {}
 edges = [] # Неориентированные рёбра
 arcs = [] # Ориентированные дуги
 edge_labels = {}
-next_edge_id = 1
 highlighted_connection = None
 
-count = 0
 selected = None
 dragging = None
 mode = "add"
@@ -35,7 +33,7 @@ type_menu = tk.OptionMenu(
     graph_type_var,
     "Неориентированный",
     "Ориентированный",
-    command=lambda  value: change_graph_type(value)
+    command=lambda value: change_graph_type(value)
 )
 
 type_menu.pack(side="left", padx=5)
@@ -66,7 +64,7 @@ def current_connections():
 def get_adjacency_matrix():
     nodes = sorted(vertices)
     index = {v: i for i, v in enumerate(nodes)}
-    matrix = [[0] for * len(nodes) for _ in nodes]
+    matrix = [[0] * len(nodes) for _ in nodes]
 
     for a, b in current_connections():
         i, j = index[a], index[b]
@@ -111,9 +109,9 @@ def show_adjacency_matrix():
     def refresh():
         for widget in table_frame.winfo_children():
             widget.destroy()
-        nodes, matri = get_adjacency_matrix()
+        nodes, matrix = get_adjacency_matrix()
 
-        table = tk.Treeview(
+        table = ttk.Treeview(
             table_frame,
             columns=[str(v) for v in nodes],
             show="headings",
@@ -123,43 +121,36 @@ def show_adjacency_matrix():
             table.heading(str(v), text=str(v))
             table.column(str(v), width=45, anchor="center")
         table.pack(fill="both", expand=True)
+        for i, v in enumerate(nodes):
+            table.insert("", "end", iid=str(v), values=matrix[i])
 
         def select_cell(event):
             global highlighted_connection
 
-            row_id = table.identify(event.y)
-            col_id = table.identify(event.x)
+            row_id = table.identify_row(event.y)
+            col_id = table.identify_column(event.x)
 
             if not row_id or not col_id:
                 return
 
-            try:
-                i = nodes.index(int(row_id))
-                j = int(col_id[1:]) - 1
-
-                if j < 0 or j >= len(nodes):
-                    return
-                a, b = nodes[i], nodes[j]
-
-                if a == b or matrix[i][j] == 0:
-                    highlighted_connection = None
-                elif is_directed():
-                    highlighted_connection = (a, b)
-                else:
-                    highlighted_connection = tuple(sorted((a, b)))
-                redraw()
-
-            except (ValueError, IndexError):
+            k = int(col_id[1:]) - 1
+            if k < 0 or k >= len(nodes):
                 return
-        table.bind("ButtonRelease-1>", select_cell)
+            a = int(row_id)
+            b = nodes[k]
+            i = nodes.index(a)
 
-        for i, v in enumerate(nodes):
-            table.insert(
-                "",
-                "end",
-                iid=str(v),
-                values=matrix[i]
-            )
+            if a == b or matrix[i][k] == 0:
+                highlighted_connection = None
+            elif is_directed():
+                highlighted_connection = (a, b)
+            else:
+                highlighted_connection = tuple(sorted((a, b)))
+
+            redraw()
+
+        table.bind("<ButtonRelease-1>", select_cell)
+
     refresh()
 
 def show_incidence_matrix():
@@ -198,7 +189,8 @@ def vertex_at(x, y):
 
 def change_graph_type(new_type):
     """Меняет тип графа, не удаляя вершины."""
-    global graph_type, selected, dragging
+    global graph_type, selected, dragging, highlighted_connection
+
     if new_type == graph_type:
         return
 
@@ -213,6 +205,8 @@ def change_graph_type(new_type):
             return
     edges.clear()
     arcs.clear()
+    edge_labels.clear()
+    highlighted_connection = None
 
     graph_type = new_type
     selected = None
@@ -223,9 +217,10 @@ def change_graph_type(new_type):
 def redraw():
     canvas.delete("all")
 
-    connections = current_connections()
+    directed = is_directed()
 
-    for a, b in connections:
+    for conn in current_connections():
+        a, b = conn
         x1, y1 = vertices[a]
         x2, y2 = vertices[b]
 
@@ -242,38 +237,50 @@ def redraw():
         start_x = x1 + ux * R
         start_y = y1 + uy * R
 
-        if is_directed():
+        is_highlighted = (conn == highlighted_connection)
+        color = "red" if is_highlighted else "black"
+        width = 4 if is_highlighted else 2
+
+        if directed:
             end_x = x2 - ux * (R + 5)
             end_y = y2 - uy * (R + 5)
-
             canvas.create_line(
-                start_x, start_y,
-                end_x, end_y,
-                width=2,
-                fill="black",
+                start_x, start_y, end_x, end_y,
+                width=width,
+                fill=color,
                 arrow=tk.LAST,
                 arrowshape=(12, 15, 5)
             )
         else:
             end_x = x2 - ux * R
             end_y = y2 - uy * R
-
             canvas.create_line(
                 start_x, start_y, end_x, end_y,
-                width=2,
-                fill="black"
+                width=width,
+                fill=color
+            )
+
+        # Подпись ребра/дуги у середины линии
+        label = edge_labels.get(conn)
+        if label:
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+            canvas.create_text(
+                mid_x, mid_y - 10,
+                text=label,
+                fill="darkgreen",
+                font=("Arial", 9, "bold")
             )
 
     for v, (x, y) in vertices.items():
         color = "orange" if v == selected else "lightblue"
         canvas.create_oval(
-            x-R, y-R,
-            x+R, y+R,
+            x - R, y - R,
+            x + R, y + R,
             fill=color,
             outline="black",
             width=2
         )
-
         canvas.create_text(
             x, y,
             text=str(v),
@@ -359,9 +366,22 @@ def set_mode(new_mode):
     redraw()
     update()
 
+def next_free_vertex_id():
+    n = 1
+    while n in vertices:
+        n += 1
+    return n
+
+
+def next_free_edge_label():
+    used = set(edge_labels.values())
+    n = 1
+    while f"e{n}" in used:
+        n += 1
+    return f"e{n}"
 
 def click(event):
-    global count, selected, dragging, next_edge_id
+    global selected, dragging, highlighted_connection
 
     v = vertex_at(event.x, event.y)
 
@@ -385,8 +405,8 @@ def click(event):
                 )
                 return
 
-        count += 1
-        vertices[count] = (x, y)
+        vertices[next_free_vertex_id()] = (x, y)
+
         redraw()
         update()
         return
@@ -422,15 +442,7 @@ def click(event):
                 )
             else:
                 connections.append(connection)
-                edge_labels[connection] = f"e{next_edge_id}"
-                next_edge_id += 1
-            if connection in connections:
-                connections.remove(connection)
-                edge_labels.pop(connection, None)
-
-            for connection in list(edge_labels):
-                if v in connection:
-                    del edge_labels[connection]
+                edge_labels[connection] = next_free_edge_label()
 
             selected = None
 
@@ -456,6 +468,9 @@ def click(event):
 
             if connection in connections:
                 connections.remove(connection)
+                edge_labels.pop(connection, None)
+                if highlighted_connection == connection:
+                    highlighted_connection = None
             else:
                 messagebox.showinfo(
                     "Граф", "Такая связь не существует!"
@@ -473,6 +488,13 @@ def click(event):
 
         edges[:] = [e for e in edges if v not in e]
         arcs[:] = [a for a in arcs if v not in a]
+
+        for conn in list(edge_labels):
+            if v in conn:
+                del edge_labels[conn]
+        if highlighted_connection is not None and v in highlighted_connection:
+            highlighted_connection = None
+
 
         selected = None
         redraw()
